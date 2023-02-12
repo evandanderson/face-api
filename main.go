@@ -17,6 +17,9 @@ import (
 	"github.com/joho/godotenv"
 )
 
+// Color used to draw face outlines
+var drawColor color.Color = color.RGBA{255, 0, 0, 255}
+
 type FaceRectangle struct {
 	Width  int `json:"width"`
 	Height int `json:"height"`
@@ -24,6 +27,7 @@ type FaceRectangle struct {
 	Top    int `json:"top"`
 }
 
+// Prepare an HTTP request with headers and body
 func createHttpRequest(method string, url string, file *os.File) (*http.Request, error) {
 	body, err := io.ReadAll(file)
 	if err != nil {
@@ -37,20 +41,22 @@ func createHttpRequest(method string, url string, file *os.File) (*http.Request,
 	return req, err
 }
 
+// Load the image into a draw.Image
 func loadImage(file *os.File) (draw.Image, error) {
 	file.Seek(0, io.SeekStart)
-	original, _, err := image.Decode(file)
+	src, _, err := image.Decode(file)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	bounds := original.Bounds()
+	bounds := src.Bounds()
 	img := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
-	draw.Draw(img, img.Bounds(), original, bounds.Min, draw.Src)
+	draw.Draw(img, img.Bounds(), src, bounds.Min, draw.Src)
 
 	return img, err
 }
 
+// Save a copy of the modified image
 func saveImage(img draw.Image, name string) {
 	file, _ := os.Create(fmt.Sprintf("%s.png", name))
 	defer file.Close()
@@ -58,21 +64,23 @@ func saveImage(img draw.Image, name string) {
 	png.Encode(file, img)
 }
 
-func drawRectangle(img draw.Image, faces []map[string]FaceRectangle) {
-	color := color.RGBA{255, 0, 0, 255}
+// Outline the detected face with a rectangle
+func drawRectangle(img draw.Image, rectangle FaceRectangle) {
+	for i := rectangle.Left; i <= rectangle.Left+rectangle.Width; i++ {
+		img.Set(i, rectangle.Top, drawColor)
+		img.Set(i, rectangle.Top+rectangle.Height, drawColor)
+	}
 
+	for i := rectangle.Top; i <= rectangle.Top+rectangle.Height; i++ {
+		img.Set(rectangle.Left, i, drawColor)
+		img.Set(rectangle.Left+rectangle.Width, i, drawColor)
+	}
+}
+
+// Draw rectangles for all detected faces
+func drawRectangles(img draw.Image, faces []map[string]FaceRectangle) {
 	for _, face := range faces {
-		rectangle := face["faceRectangle"]
-
-		for i := rectangle.Left; i <= rectangle.Left+rectangle.Width; i++ {
-			img.Set(i, rectangle.Top, color)
-			img.Set(i, rectangle.Top+rectangle.Height, color)
-		}
-
-		for i := rectangle.Top; i <= rectangle.Top+rectangle.Height; i++ {
-			img.Set(rectangle.Left, i, color)
-			img.Set(rectangle.Left+rectangle.Width, i, color)
-		}
+		drawRectangle(img, face["faceRectangle"])
 	}
 }
 
@@ -88,17 +96,17 @@ func main() {
 	req, _ := createHttpRequest("POST", os.Getenv("ENDPOINT"), file)
 	defer req.Body.Close()
 
-	resp, err := http.DefaultClient.Do(req)
+	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	body, _ := io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(res.Body)
 
-	var res []map[string]FaceRectangle
-	json.Unmarshal(body, &res)
+	var jsonRes []map[string]FaceRectangle
+	json.Unmarshal(body, &jsonRes)
 
 	img, _ := loadImage(file)
-	drawRectangle(img, res)
+	drawRectangles(img, jsonRes)
 	saveImage(img, fmt.Sprintf("%s_output", strings.TrimSuffix(file.Name(), ".png")))
 }
