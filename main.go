@@ -31,14 +31,17 @@ type FaceRectangle struct {
 func createHttpRequest(method string, url string, file *os.File) (*http.Request, error) {
 	body, err := io.ReadAll(file)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
-	req, _ := http.NewRequest(method, url, bytes.NewBuffer(body))
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/octet-stream")
 	req.Header.Set("Ocp-Apim-Subscription-Key", os.Getenv("API_KEY"))
 
-	return req, err
+	return req, nil
 }
 
 // Load the image into a draw.Image
@@ -46,19 +49,22 @@ func loadImage(file *os.File) (draw.Image, error) {
 	file.Seek(0, io.SeekStart)
 	src, _, err := image.Decode(file)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 
 	bounds := src.Bounds()
 	img := image.NewRGBA(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
 	draw.Draw(img, img.Bounds(), src, bounds.Min, draw.Src)
 
-	return img, err
+	return img, nil
 }
 
 // Save a copy of the modified image
 func saveImage(img draw.Image, name string) {
-	file, _ := os.Create(fmt.Sprintf("%s.png", name))
+	file, err := os.Create(fmt.Sprintf("%s.png", name))
+	if err != nil {
+		log.Fatal("Failed to create output image file")
+	}
 	defer file.Close()
 
 	png.Encode(file, img)
@@ -89,24 +95,33 @@ func main() {
 
 	file, err := os.Open(os.Args[1])
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error opening provided image file")
 	}
 	defer file.Close()
 
-	req, _ := createHttpRequest("POST", os.Getenv("ENDPOINT"), file)
+	req, err := createHttpRequest("POST", os.Getenv("ENDPOINT"), file)
+	if err != nil {
+		log.Fatal("Failed to create HTTP request")
+	}
 	defer req.Body.Close()
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error sending HTTP request")
 	}
 
-	body, _ := io.ReadAll(res.Body)
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		log.Fatal("Failed to read response body")
+	}
 
 	var jsonRes []map[string]FaceRectangle
 	json.Unmarshal(body, &jsonRes)
 
-	img, _ := loadImage(file)
+	img, err := loadImage(file)
+	if err != nil {
+		log.Fatal("Failed to load image")
+	}
 	drawRectangles(img, jsonRes)
 	saveImage(img, fmt.Sprintf("%s_output", strings.TrimSuffix(file.Name(), ".png")))
 }
